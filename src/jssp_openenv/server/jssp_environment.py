@@ -5,7 +5,7 @@ from typing import Optional
 import simpy
 from openenv_core.env_server import Environment
 
-from ..models import JobT, JSSPAction, JSSPObservation, MachineObservation, ReadyOperationObservation
+from ..models import JobObservation, JobT, JSSPAction, JSSPObservation, MachineObservation
 
 # Example of JSSP initial jobs
 # Each tuple is a (machine_index, processing_time)
@@ -50,35 +50,33 @@ class JSSPEnvironment(Environment):
 
         return self.state
 
-    def _get_ready_operations(self) -> list[ReadyOperationObservation]:
-        """Get all operations that are ready to be scheduled now."""
-        ready = []
+    def _get_jobs(self) -> list[JobObservation]:
+        """Get all jobs with their status and remaining operations."""
+        jobs: list[JobObservation] = []
         for job_id in range(len(self.jobs)):
-            # Skip if job is complete
-            if self.job_progress[job_id] >= len(self.jobs[job_id]):
-                continue
+            # @dataclass
+            # class JobObservation:
+            #     """Observation of a given Job in the JSSP environment."""
 
-            # Get next operation for this job
-            machine_id, duration = self.jobs[job_id][self.job_progress[job_id]]
+            #     job_id: int
+            #     operations: JobT  # remaining operations to be scheduled (not counting the current one)
+            #     busy_until: Optional[int]  # time until the current operation is complete (or none if available)
+            job_operations = self.jobs[job_id]
+            job_progress = self.job_progress[job_id]
+            job_remaining_operations = job_operations[job_progress:]
 
-            # Check if machine is available
-            busy_until = self.machine_busy_until[machine_id]
-            if busy_until is None or busy_until <= self.env.now:
-                remaining = len(self.jobs[job_id]) - self.job_progress[job_id]
-                ready.append(
-                    ReadyOperationObservation(
-                        job_id=job_id,
-                        machine_id=machine_id,
-                        duration=duration,
-                        remaining_ops=remaining,
-                    )
-                )
+            job_busy_until = None
+            for current_job, busy_until in zip(self.machine_current_job, self.machine_busy_until):
+                if current_job is not None and current_job == job_id:
+                    job_busy_until = busy_until
 
-        return ready
+            jobs.append(JobObservation(job_id=job_id, operations=job_remaining_operations, busy_until=job_busy_until))
+
+        return jobs
 
     def _at_decision_step(self) -> bool:
         """Check if we're at a decision step (at least one job can be scheduled)."""
-        return len(self._get_ready_operations()) > 0
+        return len(self.state.available_jobs()) > 0
 
     def _validate_action(self, action: JSSPAction) -> bool:
         """Validate that an action is legal."""
@@ -204,15 +202,13 @@ class JSSPEnvironment(Environment):
             for i in range(self.nb_machines)
         ]
 
-        ready_ops = self._get_ready_operations()
+        jobs = self._get_jobs()
 
         return JSSPObservation(
             done=self.completed_jobs >= len(self.jobs),
             episode_id=self.episode_id,
             step_count=self.step_count,
             machines=machines,
-            ready_operations=ready_ops,
-            completed_jobs=self.completed_jobs,
-            total_jobs=len(self.jobs),
+            jobs=jobs,
             reward=0.0,  # Default, overwritten in step()
         )

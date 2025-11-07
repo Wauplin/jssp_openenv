@@ -13,7 +13,7 @@ def solve_jssp(
 
     while not result.done:
         if verbose:
-            print(f"Step {obs.step_count}: {obs.ready_operations}")
+            print(f"Step {obs.step_count}: {', '.join([str(job.job_id) for job in obs.available_jobs()])}")
         action = policy.act(obs)
         if verbose:
             print(f"Action: {action}")
@@ -21,13 +21,13 @@ def solve_jssp(
         # Record scheduled events
         if action.job_ids:
             for job_id in action.job_ids:
-                operation = next((op for op in obs.ready_operations if op.job_id == job_id), None)
-                assert operation is not None
+                job = next((job for job in obs.available_jobs() if job.job_id == job_id), None)
+                assert job is not None
                 event = ScheduledEvent(
                     job_id=job_id,
-                    machine_id=operation.machine_id,
+                    machine_id=job.operations[0][0],
                     start_time=obs.step_count,
-                    end_time=obs.step_count + operation.duration,
+                    end_time=obs.step_count + job.operations[0][1],
                 )
                 scheduled_events.append(event)
 

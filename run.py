@@ -11,8 +11,8 @@ from jssp_openenv.solver import solve_jssp
 
 SERVER_URL = "http://localhost:8000"
 MAX_STEPS = 1000  # Maximum number of steps per instance
-CHART_DIR = "charts"
-os.makedirs(CHART_DIR, exist_ok=True)
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 cli = typer.Typer()
 
@@ -68,7 +68,7 @@ def solve(
 
     print(f"Solved in {makespan} steps")
 
-    filepath = os.path.join(CHART_DIR, filename)
+    filepath = os.path.join(OUTPUT_DIR, filename)
     gantt_chart(scheduled_events, title=title, makespan=makespan, save_to=filepath)
     print(f"Saved Gantt chart to {filepath}")
 

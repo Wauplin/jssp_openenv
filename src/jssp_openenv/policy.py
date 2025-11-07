@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 from openai import OpenAI
 
-from .models import JSSPAction, JSSPObservation, MachineObservation, ReadyOperationObservation
+from .models import JobObservation, JSSPAction, JSSPObservation, MachineObservation
 
 
 class JSSPEnvPolicy(ABC):
@@ -15,30 +15,24 @@ class JSSPEnvPolicy(ABC):
 class JSSPFifoPolicy(JSSPEnvPolicy):
     def act(self, observation: JSSPObservation) -> JSSPAction:
         """
-        FIFO scheduling: schedule ready operations in order of job_id.
+        FIFO scheduling: schedule available jobs in order of job_id.
 
-        This policy schedules operations in FIFO order (by job_id), respecting
-        machine availability. It only schedules operations for machines that are
-        currently available (not busy).
+        This policy schedules jobs in FIFO order (by job_id), respecting machine availability.
+        It only schedules jobs for machines that are currently available (not busy).
         """
-        # Create a lookup for machine availability
-        machine_available = {m.machine_id: m.busy_until is None for m in observation.machines}
-
-        # Filter to only ready operations with available machines
-        available_ops = [op for op in observation.ready_operations if machine_available.get(op.machine_id, False)]
-
-        # Sort by job_id (FIFO: first job_id first)
-        available_ops.sort(key=lambda op: op.job_id)
+        # Filter to only available jobs with available machines + sort by job_id
+        sorted_jobs = sorted(observation.available_jobs(), key=lambda job: job.job_id)
 
         # Track which machines we've already scheduled to avoid conflicts
         scheduled_machines = set()
         scheduled_job_ids = []
 
         # Schedule jobs in FIFO order, but skip if machine is already taken
-        for op in available_ops:
-            if op.machine_id not in scheduled_machines:
-                scheduled_job_ids.append(op.job_id)
-                scheduled_machines.add(op.machine_id)
+        for job in sorted_jobs:
+            machine_id = job.operations[0][0]
+            if machine_id not in scheduled_machines:
+                scheduled_job_ids.append(job.job_id)
+                scheduled_machines.add(machine_id)
 
         return JSSPAction(job_ids=scheduled_job_ids)
 
@@ -48,18 +42,19 @@ class JSSPMaxMinPolicy(JSSPEnvPolicy):
         """
         Max-Min scheduling: schedule the operation with the longest duration first.
         """
-        # Sort operations by duration (max-min)
-        ops = sorted(observation.ready_operations, key=lambda op: op.duration, reverse=True)
+        # Sort available jobs by duration (max-min)
+        sorted_jobs = sorted(observation.available_jobs(), key=lambda job: job.operations[0][1], reverse=True)
 
         # Track which machines we've already scheduled to avoid conflicts
         scheduled_machines = set()
         scheduled_job_ids = []
 
         # Schedule jobs in max-min order, but skip if machine is already taken
-        for op in ops:
-            if op.machine_id not in scheduled_machines:
-                scheduled_job_ids.append(op.job_id)
-                scheduled_machines.add(op.machine_id)
+        for job in sorted_jobs:
+            machine_id = job.operations[0][0]
+            if machine_id not in scheduled_machines:
+                scheduled_job_ids.append(job.job_id)
+                scheduled_machines.add(machine_id)
 
         return JSSPAction(job_ids=scheduled_job_ids)
 
@@ -69,46 +64,33 @@ You are solving a Job Shop Scheduling Problem (JSSP). Your goal is to minimize t
 
 You must optimize for minimal makespan while respecting all constraints. Each job consists of multiple operations that must be completed in sequence, and each operation requires a specific machine for a given duration.
 
----
+**Current step:** {step_count}
 
-### 🕒 Current State
-**Step:** {step_count} | **Completed:** {completed_jobs}/{total_jobs}
-
----
-
-### ⚙️ Machine Status
+**Machine Status:**
 {machines_status}
 
 You must check machine availability before scheduling. Machines that are busy cannot start new operations until they finish their current task.
 
----
+**Jobs:**
+{jobs_list}
 
-### ✅ Ready to Schedule (NOW)
-{ready_operations_list}
-
-Each entry shows: **machine**, **duration**, and **remaining ops**.
-You can only schedule operations that are ready at this step. These are operations whose previous steps in the job sequence have been completed.
-
----
-
-### 🎯 Rules You Must Follow
-1. You must schedule only **ready** operations. Do not attempt to schedule operations that are not ready.
+**Rules You Must Follow:**
+1. You must schedule only **available** jobs. Do not attempt to schedule jobs that are not available.
 2. Each machine can run **one job at a time**. You cannot schedule multiple jobs on the same machine simultaneously.
 3. You must not schedule jobs on **busy** machines (`busy_until > current step`). Check machine availability before scheduling.
 4. You may **schedule multiple** jobs on different machines in the same step, or you may choose to wait if no good scheduling opportunity exists.
 
----
+**Legal actions:**
+{legal_job_ids}
 
-### 🧩 Available Actions
-{legal_actions}
+These are the valid job IDs you can schedule at this step. You must choose a subset from this list or choose to wait.
 
-These are the valid job IDs you can schedule at this step. You must choose from this list.
-
-**Answer format:**
+**Action format:**
 - To schedule jobs: `"0,2"` or `"1"` (comma-separated job IDs)
 - To wait: `""` (empty string)
+Select the best subset of jobs to schedule to minimize the total makespan once all jobs are completed.
 
-Respond only with the action format specified above.
+Response only with the action format specified above, and nothing else.
 """
 
 
@@ -132,35 +114,27 @@ class JSSPLLMPolicy(JSSPEnvPolicy):
         """
         LLM scheduling: use an LLM to schedule the operations.
 
-        Determines legal actions (ready operations with available machines),
-        formats a prompt, calls the LLM, and parses the response to return
-        a scheduling action.
+        Process:
+        - Determine legal job IDs (available jobs on available machines)
+        - Format a prompt
+        - Call the LLM
+        - Parse the response to return a scheduling action
         """
-        # Determine machine availability
-        machine_available = {
-            m.machine_id: m.busy_until is None or m.busy_until <= observation.step_count for m in observation.machines
-        }
-
-        # Filter ready operations to only include those with available machines
-        legal_job_ids = [
-            op.job_id for op in observation.ready_operations if machine_available.get(op.machine_id, False)
-        ]
+        available_jobs = observation.available_jobs()
 
         # If no legal actions, return empty action (wait)
-        if not legal_job_ids:
+        if not available_jobs:
             return JSSPAction(job_ids=[])
 
         # Format prompt
         machines_status = self._format_machines_status(observation.machines, observation.step_count)
-        ready_operations_list = self._format_ready_operations(observation.ready_operations)
+        jobs_list = self._format_jobs(observation.jobs)
 
         prompt = PROMPT_TEMPLATE.format(
             step_count=observation.step_count,
-            completed_jobs=observation.completed_jobs,
-            total_jobs=observation.total_jobs,
             machines_status=machines_status,
-            ready_operations_list=ready_operations_list,
-            legal_actions=legal_job_ids,
+            jobs_list=jobs_list,
+            legal_job_ids=[job.job_id for job in available_jobs],
         )
         print(f"Step {observation.step_count}")
 
@@ -170,9 +144,7 @@ class JSSPLLMPolicy(JSSPEnvPolicy):
                 model=self.model_id, messages=[{"role": "user", "content": prompt}], temperature=0.0
             )
             llm_output = response.choices[0].message.content or ""
-            print(f"LLM Output: {llm_output}")
-            job_ids = self._parse_action(llm_output, legal_job_ids)
-            print(f"Job IDs: {job_ids}")
+            job_ids = self._parse_action(llm_output, available_jobs)
 
             # Ensure we don't schedule multiple jobs on the same machine
             # Track which machines we've already scheduled to avoid conflicts
@@ -180,10 +152,10 @@ class JSSPLLMPolicy(JSSPEnvPolicy):
             filtered_job_ids = []
             for job_id in job_ids:
                 # Find the operation for this job
-                op = next((op for op in observation.ready_operations if op.job_id == job_id), None)
-                if op is not None and op.machine_id not in scheduled_machines:
+                op = next((op for op in available_jobs if op.job_id == job_id), None)
+                if op is not None and op.operations[0][0] not in scheduled_machines:
                     filtered_job_ids.append(job_id)
-                    scheduled_machines.add(op.machine_id)
+                    scheduled_machines.add(op.operations[0][0])
 
             return JSSPAction(job_ids=filtered_job_ids)
 
@@ -207,18 +179,23 @@ class JSSPLLMPolicy(JSSPEnvPolicy):
         return "\n".join(lines) if lines else "  (No machines)"
 
     @staticmethod
-    def _format_ready_operations(ready_operations: list[ReadyOperationObservation]) -> str:
-        """Format ready operations for prompt."""
+    def _format_jobs(jobs: list[JobObservation]) -> str:
+        """Format jobs for prompt."""
         lines = []
-        for op in ready_operations:
-            lines.append(
-                f"  Job {op.job_id}: Machine {op.machine_id}, Duration {op.duration} min, {op.remaining_ops} ops remaining"
-            )
-        return "\n".join(lines) if lines else "  (No ready operations)"
+        for job in jobs:
+            available = job.busy_until is None
+            operations = ", ".join(f"(Machine {op[0]}, {op[1]} min)" for op in job.operations)
+            if available:
+                lines.append(f"  Job {job.job_id}: Available. Remaining operations: {operations}")
+            else:
+                lines.append(f"  Job {job.job_id}: Busy until t={job.busy_until}. Remaining operations: {operations}")
+        return "\n".join(lines) if lines else "  (No jobs)"
 
     @staticmethod
-    def _parse_action(text: str, legal_job_ids: list[int]) -> list[int]:
+    def _parse_action(text: str, available_jobs: list[JobObservation]) -> list[int]:
         """Parse comma-separated job IDs from model output."""
+        legal_job_ids = [job.job_id for job in available_jobs]
+
         # First, we remove the reasoning section
         text = text.split("<think>")[-1].split("</think>")[-1].strip()
 

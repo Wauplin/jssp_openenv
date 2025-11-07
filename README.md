@@ -53,7 +53,7 @@ The project follows a client-server architecture using the OpenEnv framework:
 
 **Models** (`src/jssp_openenv/models.py`):
 - `JSSPAction`: Represents scheduling actions (list of job IDs to schedule)
-- `JSSPObservation`: Contains the current state (machines, ready operations, progress)
+- `JSSPObservation`: Contains the current state (machine status, job status, remaining operations)
 
 **Environment** (`src/jssp_openenv/server/jssp_environment.py`):
 - `JSSPEnvironment`: The core simulation environment that:
@@ -143,6 +143,20 @@ The solver will resolve the problem using the policy and then plot a gantt chart
 Here is an example:
 
 ![FIFO Policy Gantt Chart](assets/gantt_fifo_policy.png)
+
+## Current Results
+
+Results as of Nov. 7, 2024 on FT06 problem instance. *Note: Non-scientific results, only ran 1 episode per policy.*
+
+| Policy | Makespan |
+|--------|----------|
+| **Optimal solution** | **55** |
+| `openai/gpt-oss-20b:groq` | 61 |
+| FIFO | 68 |
+| `openai/gpt-oss-120b:cerebras` | 69 |
+| `Qwen/Qwen3-32B:groq` | 69 |
+| Max-Min | 77 |
+
 
 ## Run with docker
 

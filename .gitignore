@@ -215,5 +215,4 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-charts/
-!charts/gantt_fifo_policy.png
+output/

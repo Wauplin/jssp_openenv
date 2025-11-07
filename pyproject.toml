@@ -26,11 +26,9 @@ dev = [
     "ty",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.mypy]
+disable_error_code = ["import-untyped"]
+ignore_missing_imports = true
 
 [tool.ruff]
 exclude = [".git", ".ruff_cache", ".venv"]
@@ -39,3 +37,9 @@ line-length = 119
 # "E501" -> line length violation
 lint.ignore = ["E501"]
 lint.select = ["E", "F", "I", "W"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

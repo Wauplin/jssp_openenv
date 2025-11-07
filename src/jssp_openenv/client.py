@@ -1,6 +1,6 @@
 from openenv_core import HTTPEnvClient, StepResult
 
-from .models import JSSPAction, JSSPObservation, MachineObservation, ReadyOperationObservation
+from .models import JobObservation, JSSPAction, JSSPObservation, MachineObservation
 
 
 class JSSPEnvClient(HTTPEnvClient[JSSPAction, JSSPObservation]):
@@ -12,9 +12,7 @@ class JSSPEnvClient(HTTPEnvClient[JSSPAction, JSSPObservation]):
         return StepResult[JSSPObservation](
             observation=JSSPObservation(
                 machines=[MachineObservation(**machine) for machine in obs_data.pop("machines")],
-                ready_operations=[
-                    ReadyOperationObservation(**operation) for operation in obs_data.pop("ready_operations")
-                ],
+                jobs=[JobObservation(**job) for job in obs_data.pop("jobs")],
                 **obs_data,
             ),
             reward=payload.get("reward"),
