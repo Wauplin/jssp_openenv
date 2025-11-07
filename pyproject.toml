@@ -16,7 +16,7 @@ dependencies = [
     "simpy", # for env simulation
     "matplotlib", # for plotting
     "typer", # for CLI
-    "uvicorn['standard']", # for serving
+    "uvicorn[standard]", # for serving
 ]
 
 [project.optional-dependencies]
