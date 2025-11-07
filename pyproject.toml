@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jssp_openenv"
+description = "JSSP environment for OpenEnv"
+version = "0.1.0"
+authors = [
+    { name="Lucain Pouget", email="lucain@huggingface.co" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core>=0.1.0",
+    "openai", # for inference.py
+    "simpy", # for env simulation
+    "matplotlib", # for plotting
+    "typer", # for CLI
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "ty",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+exclude = [".git", ".ruff_cache", ".venv"]
+line-length = 119
+# Ignored rules:
+# "E501" -> line length violation
+lint.ignore = ["E501"]
+lint.select = ["E", "F", "I", "W"]
